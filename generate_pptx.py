@@ -4,8 +4,8 @@ from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml.ns import qn
 from lxml import etree
+import os
 
-# ── Colors ────────────────────────────────────────────────────────────────────
 BLUE_DARK  = RGBColor(0x1A, 0x52, 0x76)
 BLUE_MED   = RGBColor(0x2E, 0x86, 0xC1)
 BLUE_LIGHT = RGBColor(0xD6, 0xEA, 0xF8)
@@ -18,25 +18,28 @@ DARK       = RGBColor(0x1C, 0x1C, 0x1C)
 
 FONT = "Aptos Display"
 
-# ── Dimensions (cm) ───────────────────────────────────────────────────────────
-SLIDE_W     = 33.87
-SLIDE_H     = 19.05
-MARGIN      = 2.0
-CONTENT_W   = SLIDE_W - 2 * MARGIN        # 29.87
-TITLE_LEFT  = MARGIN
-TITLE_TOP   = 0.7
-TITLE_H     = 2.0
-LISERET_TOP = TITLE_TOP + TITLE_H + 0.8   # 3.5
-LISERET_H   = 0.08
-CONTENT_TOP = LISERET_TOP + LISERET_H + 1.0  # 4.58
-CONTENT_H   = SLIDE_H - CONTENT_TOP - 1.0   # 13.47
-LEFT_COL_W  = CONTENT_W * 3 / 5             # 17.922
-GAP         = 0.4
-RIGHT_COL_L = MARGIN + LEFT_COL_W + GAP     # 20.322
-BOX_W       = CONTENT_W * 2 / 5 - 1.8      # 10.148
+SLIDE_W       = 33.87
+SLIDE_H       = 19.05
+MARGIN        = 2.0
+CONTENT_W     = SLIDE_W - 2 * MARGIN   # 29.87
+LEFT_COL_W    = CONTENT_W * 3 / 5      # 17.92
+GAP           = 0.4
+RIGHT_COL_L   = MARGIN + LEFT_COL_W + GAP
+BOX_W         = CONTENT_W * 2 / 5 - 1.8
+
+TITLE_LEFT    = MARGIN
+TITLE_TOP     = 0.7
+TITLE_H_1LINE = 1.8    # height for a single-line title
+TITLE_H_2LINE = 3.2    # height for a two-line title
+LISERET_GAP   = 1.5    # gap above and below the liseret
+LISERET_H     = 0.08
+BAND_H        = 2.5    # card header band height (fits 1–2 lines at 16 pt)
+
+BASE       = os.path.dirname(os.path.abspath(__file__))
+MOCKUP_DIR = os.path.join(BASE, "mockup")
 
 
-# ── Low-level helpers ─────────────────────────────────────────────────────────
+# ── Primitives ────────────────────────────────────────────────────────────────
 
 def _blank_slide(prs):
     return prs.slides.add_slide(prs.slide_layouts[6])
@@ -80,7 +83,7 @@ def _set_run(run, text, size, bold, color):
 
 
 def _textbox(slide, text, left, top, width, height,
-             size=14, bold=False, color=DARK, align=PP_ALIGN.LEFT):
+             size=18, bold=False, color=DARK, align=PP_ALIGN.LEFT):
     txb = slide.shapes.add_textbox(Cm(left), Cm(top), Cm(width), Cm(height))
     tf = txb.text_frame
     tf.word_wrap = True
@@ -90,7 +93,7 @@ def _textbox(slide, text, left, top, width, height,
     return txb
 
 
-def _multiline_textbox(slide, lines, left, top, width, height, size=14):
+def _multiline(slide, lines, left, top, width, height, size=18, space_after=5):
     txb = slide.shapes.add_textbox(Cm(left), Cm(top), Cm(width), Cm(height))
     tf = txb.text_frame
     tf.word_wrap = True
@@ -98,33 +101,32 @@ def _multiline_textbox(slide, lines, left, top, width, height, size=14):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         p.alignment = PP_ALIGN.LEFT
         _set_run(p.add_run(), text, size, bold, color if color else DARK)
+        if text.strip():
+            p.space_after = Pt(space_after)
     return txb
 
 
-def _add_oval_number(slide, number, left, top, size=1.2):
-    circ = _oval(slide, left, top, size, size, BLUE_DARK)
-    tf = circ.text_frame
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
-    tf.margin_top = Cm(0)
-    tf.margin_bottom = Cm(0)
-    p = tf.paragraphs[0]
-    p.alignment = PP_ALIGN.CENTER
-    _set_run(p.add_run(), str(number), 16, True, WHITE)
-    return circ
-
-
-# ── Reusable components ───────────────────────────────────────────────────────
+# ── Composants ────────────────────────────────────────────────────────────────
 
 def add_title(slide, text):
+    """Draw title + liseret. Returns (content_top, content_h) computed dynamically."""
+    two_lines = len(text) > 44
+    title_h    = TITLE_H_2LINE if two_lines else TITLE_H_1LINE
+    liseret_top = TITLE_TOP + title_h + LISERET_GAP
+    content_top = liseret_top + LISERET_H + LISERET_GAP
+    content_h   = SLIDE_H - content_top - 1.0
+
     txb = slide.shapes.add_textbox(
-        Cm(TITLE_LEFT), Cm(TITLE_TOP), Cm(CONTENT_W), Cm(TITLE_H)
+        Cm(TITLE_LEFT), Cm(TITLE_TOP), Cm(CONTENT_W), Cm(title_h)
     )
     tf = txb.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
     p.alignment = PP_ALIGN.LEFT
     _set_run(p.add_run(), text, 36, True, DARK)
-    _rect(slide, TITLE_LEFT, LISERET_TOP, CONTENT_W, LISERET_H, BLUE_DARK)
+
+    _rect(slide, TITLE_LEFT, liseret_top, CONTENT_W, LISERET_H, BLUE_DARK)
+    return content_top, content_h
 
 
 def add_page_number(slide, number, is_cover=False):
@@ -137,47 +139,98 @@ def add_page_number(slide, number, is_cover=False):
 def add_kpi_box(slide, value, label, left, top, width, height, value_color=BLUE_MED):
     _rect(slide, left, top, width, height, GRAY_BG)
     pad = 0.4
-    val_top = top + height * 0.12
-    lbl_top = top + height * 0.58
     _textbox(slide, value,
-             left + pad, val_top, width - 2*pad, height * 0.45,
+             left + pad, top + height * 0.1, width - 2 * pad, height * 0.5,
              size=40, bold=True, color=value_color, align=PP_ALIGN.CENTER)
     _textbox(slide, label,
-             left + pad, lbl_top, width - 2*pad, height * 0.35,
-             size=12, color=GRAY_TEXT, align=PP_ALIGN.CENTER)
+             left + pad, top + height * 0.62, width - 2 * pad, height * 0.33,
+             size=14, color=GRAY_TEXT, align=PP_ALIGN.CENTER)
 
 
 def add_card(slide, title, body_lines, left, top, width, height):
     _rect(slide, left, top, width, height, GRAY_BG)
-    BAND_H = 1.8
     _rect(slide, left, top, width, BAND_H, BLUE_DARK)
-    pad = 0.35
-    _textbox(slide, title,
-             left + pad, top + 0.35, width - 2*pad, BAND_H - 0.3,
-             size=18, bold=True, color=WHITE, align=PP_ALIGN.LEFT)
-    body_top = top + BAND_H + 0.3
-    body_h = height - BAND_H - 0.5
-    _multiline_textbox(slide, body_lines,
-                       left + pad, body_top, width - 2*pad, body_h,
-                       size=13)
+    pad = 0.4
+    # Vertically center title within band
+    title_top = top + (BAND_H - 1.6) / 2
+    txb = slide.shapes.add_textbox(
+        Cm(left + pad), Cm(title_top), Cm(width - 2 * pad), Cm(1.6)
+    )
+    tf = txb.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.LEFT
+    _set_run(p.add_run(), title, 16, True, WHITE)
+
+    body_top = top + BAND_H + 0.4
+    body_h   = height - BAND_H - 0.6
+    _multiline(slide, body_lines,
+               left + pad, body_top, width - 2 * pad, body_h,
+               size=16, space_after=6)
 
 
 def add_pipeline_step(slide, number, title, body, left, top, width, height):
     _rect(slide, left, top, width, height, BLUE_LIGHT)
-    circ_size = 1.0
-    circ_top = top + (height - circ_size) / 2
-    _add_oval_number(slide, number, left + 0.35, circ_top, circ_size)
-    text_left = left + 0.35 + circ_size + 0.35
-    text_w = width - 0.35 - circ_size - 0.35 - 0.35
+    circ_size = 1.1
+    circ_top  = top + (height - circ_size) / 2
+    circ = _oval(slide, left + 0.4, circ_top, circ_size, circ_size, BLUE_DARK)
+    tf = circ.text_frame
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    _set_run(p.add_run(), str(number), 18, True, WHITE)
+    text_left = left + 0.4 + circ_size + 0.4
+    text_w    = width - 0.4 - circ_size - 0.8
     _textbox(slide, title,
-             text_left, top + 0.2, text_w, height * 0.42,
-             size=14, bold=True, color=DARK)
+             text_left, top + 0.25, text_w, height * 0.42,
+             size=18, bold=True, color=DARK)
     _textbox(slide, body,
-             text_left, top + height * 0.44, text_w, height * 0.5,
-             size=12, color=GRAY_TEXT)
+             text_left, top + height * 0.48, text_w, height * 0.48,
+             size=16, color=GRAY_TEXT)
 
 
-# ── Slide builders ────────────────────────────────────────────────────────────
+def add_section_divider(prs, title, subtitle, page_num):
+    slide = _blank_slide(prs)
+    _rect(slide, 0, 0, SLIDE_W, SLIDE_H, BLUE_DARK)
+    _textbox(slide, title,
+             3.0, 6.5, SLIDE_W - 6.0, 3.5,
+             size=44, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+    if subtitle:
+        _textbox(slide, subtitle,
+                 3.0, 10.5, SLIDE_W - 6.0, 2.0,
+                 size=24, color=RGBColor(0x5D, 0xAD, 0xE8), align=PP_ALIGN.CENTER)
+    add_page_number(slide, page_num, is_cover=True)
+
+
+def add_file_slide(prs, title, file_name, analyse, modifs, page_num):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, title)
+
+    left_lines = (
+        [("Analyse du fichier :", True, BLUE_DARK), ("", False, None)]
+        + [(f"• {a}", False, None) for a in analyse]
+        + [("", False, None),
+           ("Modifications effectuées :", True, BLUE_DARK),
+           ("", False, None)]
+        + [(f"• {m}", False, None) for m in modifs]
+    )
+    _multiline(slide, left_lines, MARGIN, ct, LEFT_COL_W, ch, size=18, space_after=6)
+
+    box_h = ch * 0.72
+    _rect(slide, RIGHT_COL_L, ct, BOX_W, box_h, GRAY_BG)
+    pad = 0.4
+    _textbox(slide, file_name,
+             RIGHT_COL_L + pad, ct + 0.4, BOX_W - 2 * pad, 1.1,
+             size=14, bold=True, color=BLUE_DARK)
+    for i, a in enumerate(analyse):
+        _textbox(slide, f"• {a}",
+                 RIGHT_COL_L + pad, ct + 1.7 + i * 1.1, BOX_W - 2 * pad, 1.0,
+                 size=14, color=GRAY_TEXT)
+
+    add_page_number(slide, page_num)
+
+
+# ── Slides ────────────────────────────────────────────────────────────────────
 
 def build_cover(prs):
     slide = _blank_slide(prs)
@@ -194,269 +247,650 @@ def build_cover(prs):
     add_page_number(slide, 1, is_cover=True)
 
 
-def build_contexte(prs):
+def build_objectif(prs):
     slide = _blank_slide(prs)
-    add_title(slide,
-              "387 millions de personnes sans accès à l'eau basique"
-              " — l'Afrique concentre l'urgence humaine")
+    ct, ch = add_title(slide, "Objectif de la mission")
 
-    body_lines = [
-        ("DWFA (Drinking Water For All) est une organisation internationale dédiée à l'amélioration "
-         "de l'accès à l'eau potable dans les pays en développement.",
-         False, None),
+    intro_lines = [
+        ("DWFA — Drinking Water For All — œuvre pour améliorer l'accès à l'eau "
+         "potable dans les pays en développement.", False, None),
         ("", False, None),
-        ("Contexte mondial en 2017 :", True, BLUE_DARK),
-        ("• 68 % de la population mondiale a accès à l'eau basique", False, None),
-        ("• Seuls 24 % bénéficient d'un accès sécurisé (qualité OMS garantie)", False, None),
-        ("• L'écart entre basique et sécurisé révèle un déficit de qualité massif", False, None),
-        ("• L'Afrique et l'Asie du Sud-Est concentrent la majorité des personnes non couvertes", False, None),
-        ("", False, None),
-        ("Périmètre de l'étude :", True, BLUE_DARK),
-        ("• 194 pays  ·  6 régions OMS  ·  2000 à 2017", False, None),
-        ("", False, None),
-        ("Objectif DWFA :", True, BLUE_DARK),
-        ("Identifier les pays prioritaires pour une intervention adaptée :", False, None),
-        ("D1 Construction   ·   D2 Modernisation   ·   D3 Conseil gouvernemental", False, None),
+        ("La mission : identifier le pays le plus en difficulté dans chaque "
+         "domaine, afin d'orienter l'intervention.", False, None),
     ]
-    _multiline_textbox(slide, body_lines, MARGIN, CONTENT_TOP,
-                       LEFT_COL_W, CONTENT_H, size=14)
+    _multiline(slide, intro_lines, MARGIN, ct, CONTENT_W, 3.8, size=18, space_after=5)
 
-    kpi_h = (CONTENT_H - 2 * 0.35) / 3
-    kpis = [
-        ("387 M",  "Population sans accès à l'eau basique (2017)", RED),
-        ("68 %",   "Taux d'accès basique mondial (2017)",          BLUE_MED),
-        ("464 K",  "Décès liés au WASH (2016)",                    RED),
+    domains = [
+        ("D1 — Construction",
+         [("Accès basique < 50 %", False, None),
+          ("Pas d'infrastructure de base", False, None),
+          ("Besoin : créer le réseau", False, None),
+          ("Critère : population non couverte", False, None)]),
+        ("D2 — Modernisation",
+         [("Accès basique 50–90 %", False, None),
+          ("Infrastructure partielle", False, None),
+          ("Besoin : étendre et sécuriser", False, None),
+          ("Critère : écart basique / sécurisé", False, None)]),
+        ("D3 — Conseil gouvernemental",
+         [("Instabilité politique élevée", False, None),
+          ("Cadre institutionnel défaillant", False, None),
+          ("Besoin : accompagnement politique", False, None),
+          ("Critère : score WGI stabilité", False, None)]),
     ]
-    for i, (val, lbl, col) in enumerate(kpis):
-        add_kpi_box(slide, val, lbl,
-                    RIGHT_COL_L, CONTENT_TOP + i * (kpi_h + 0.35),
-                    BOX_W, kpi_h, col)
+
+    n = len(domains)
+    card_gap = 0.4
+    card_w = (CONTENT_W - (n - 1) * card_gap) / n
+    card_top = ct + 4.2
+    card_h = ch - 4.2
+
+    for i, (title, body) in enumerate(domains):
+        add_card(slide, title, body,
+                 MARGIN + i * (card_w + card_gap), card_top, card_w, card_h)
 
     add_page_number(slide, 2)
 
 
-def build_sources(prs):
+def build_mission(prs):
     slide = _blank_slide(prs)
-    add_title(slide,
-              "5 sources OMS / Banque Mondiale, 194 pays sur 18 ans — périmètre mondial validé")
+    ct, ch = add_title(slide, "Mission — 3 axes d'analyse")
 
-    sources = [
-        ("Accès à l'eau",
-         "BasicAndSafelyManaged\nDrinkingWaterServices.csv",
-         ["% accès basique & sécurisé",
-          "Granularités : Total / Urban / Rural",
-          "Période : 2000–2017"]),
-        ("Mortalité WASH",
-         "MortalityRateAttributed\nToWater.csv",
-         ["Taux de mortalité WASH",
-          "Année disponible : 2016",
-          "183 pays couverts"]),
-        ("Population",
-         "Population.csv",
-         ["Pop. totale, urbaine, rurale",
-          "Période : 2000–2017",
-          "194 pays — source ONU"]),
-        ("Stabilité politique",
-         "PoliticalStability.csv",
-         ["Score WGI stabilité politique",
-          "Échelle : −2,5 à +2,5",
-          "Période : 2000–2017"]),
-        ("Régions OMS",
-         "RegionCountry.csv",
-         ["Correspondance pays → région",
-          "6 régions OMS",
-          "194 pays — couverture 100 %"]),
+    steps = [
+        ("Exploration des données",
+         [("Structure et qualité des 5 fichiers sources", False, None),
+          ("Types, valeurs manquantes, anomalies", False, None),
+          ("Couverture géographique et temporelle", False, None)]),
+        ("Création des dashboards",
+         [("Vue Mondiale : KPIs et cartes", False, None),
+          ("Vue Continentale : comparaison régionale", False, None),
+          ("Vue Nationale : zoom pays, évolution", False, None)]),
+        ("Choix des pays prioritaires",
+         [("Sélection par domaine D1 / D2 / D3", False, None),
+          ("Critères basés sur les indicateurs", False, None),
+          ("Recommandations actionnables DWFA", False, None)]),
     ]
 
-    n = len(sources)
-    card_gap = 0.3
+    n = len(steps)
+    card_gap = 0.4
     card_w = (CONTENT_W - (n - 1) * card_gap) / n
-    card_h = CONTENT_H - 2.1
 
-    for i, (title, src_file, body_parts) in enumerate(sources):
-        left = MARGIN + i * (card_w + card_gap)
-        body_lines = (
-            [(line, True, BLUE_DARK) for line in src_file.split("\n")]
-            + [("", False, None)]
-            + [(bp, False, None) for bp in body_parts]
-        )
-        add_card(slide, title, body_lines, left, CONTENT_TOP, card_w, card_h)
-
-    kpi_w = (CONTENT_W - 2 * 0.35) / 3
-    bottom_top = CONTENT_TOP + card_h + 0.35
-    bottom_kpis = [
-        ("194 pays",  "couverture mondiale"),
-        ("18 ans",    "2000 – 2017"),
-        ("6 régions", "OMS"),
-    ]
-    for i, (val, lbl) in enumerate(bottom_kpis):
-        add_kpi_box(slide, val, lbl,
-                    MARGIN + i * (kpi_w + 0.35), bottom_top,
-                    kpi_w, 1.6, BLUE_DARK)
+    for i, (title, body) in enumerate(steps):
+        add_card(slide, title, body,
+                 MARGIN + i * (card_w + card_gap), ct, card_w, ch)
 
     add_page_number(slide, 3)
 
 
-def build_pretraitement(prs):
+def build_outils(prs):
     slide = _blank_slide(prs)
-    add_title(slide,
-              "4 étapes de consolidation produisent 2 tables analytiques"
-              " — zéro doublon, validation automatique")
+    ct, ch = add_title(slide, "Outils & Ressources")
 
-    steps = [
-        ("Renommage & types",
-         "Colonnes standardisées en français · types numériques validés"
-         " · pourcentages plafonnés à 100 (erreurs d'arrondi OMS)"),
-        ("Filtrage granularité",
-         "Extraction granularité «Total» pour les jointures principales"
-         " · «Urban / Rural» conservés séparément pour les charts"),
-        ("Indicateurs dérivés",
-         "Population en personnes (× 1 000) · pct_pop_rurale"
-         " · nb_deces_wash = taux_mortalite × pop / 100 000"),
-        ("Jointure & export",
-         "5 sources consolidées en 1 table · tests assert automatiques"
-         " · 2 CSV exportés : dwfa_consolide.csv + dwfa_eau_granulaire.csv"),
+    outils_lines = [
+        ("Environnement d'analyse", True, BLUE_DARK),
+        ("", False, None),
+        ("• Python 3.12 — pandas, numpy, python-pptx", False, None),
+        ("• Jupyter Notebook — exploration interactive", False, None),
+        ("• uv — gestion des dépendances", False, None),
+        ("", False, None),
+        ("Visualisation & Dashboard", True, BLUE_DARK),
+        ("", False, None),
+        ("• Tableau Public — dashboards interactifs", False, None),
+        ("• 3 vues interconnectées : Mondiale / Continentale / Nationale", False, None),
+        ("• Publication sans infrastructure serveur", False, None),
+        ("", False, None),
+        ("Données sources", True, BLUE_DARK),
+        ("", False, None),
+        ("• 5 fichiers OMS / Banque Mondiale", False, None),
+        ("• 194 pays · 6 régions OMS · 2000–2017", False, None),
     ]
+    _multiline(slide, outils_lines, MARGIN, ct, LEFT_COL_W, ch, size=18, space_after=5)
 
-    step_gap = 0.35
-    step_h = (CONTENT_H - (len(steps) - 1) * step_gap - 1.3) / len(steps)
-
-    for i, (title, body) in enumerate(steps):
-        add_pipeline_step(slide, i + 1, title, body,
-                          MARGIN, CONTENT_TOP + i * (step_h + step_gap),
-                          LEFT_COL_W, step_h)
-
-    kpi_h = (CONTENT_H - 2 * 0.35 - 1.3) / 3
+    kpi_h = (ch - 2 * 0.4) / 3
     kpis = [
-        ("3 492", "Lignes — dwfa_consolide.csv",    BLUE_MED),
-        ("13",    "Colonnes analytiques",             BLUE_MED),
-        ("0",     "Doublon — validation réussie",     GREEN),
+        ("5",      "Fichiers sources OMS / BM",  BLUE_MED),
+        ("194",    "Pays couverts",               BLUE_MED),
+        ("18 ans", "Période 2000–2017",           BLUE_MED),
     ]
     for i, (val, lbl, col) in enumerate(kpis):
         add_kpi_box(slide, val, lbl,
-                    RIGHT_COL_L, CONTENT_TOP + i * (kpi_h + 0.35),
-                    BOX_W, kpi_h, col)
+                    RIGHT_COL_L, ct + i * (kpi_h + 0.4), BOX_W, kpi_h, col)
 
-    note = (
-        "Valeurs manquantes documentées : 50 % pour l'accès sécurisé (non collecté par l'OMS) "
-        "· 94,8 % pour la mortalité (une seule année disponible : 2016)"
-    )
-    _textbox(slide, note,
-             MARGIN, SLIDE_H - 1.7, CONTENT_W, 0.9,
-             size=10, color=GRAY_TEXT)
+    add_page_number(slide, 3)
+
+
+def build_etapes(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Grandes étapes du projet")
+
+    etapes = [
+        ("Nettoyage\n& Fusion",
+         "Exploration, types, doublons, jointures des 5 sources"),
+        ("Blueprint\n& Mock-Up",
+         "Conception des dashboards : structure, vues, indicateurs"),
+        ("Enrichissement\ndes données",
+         "Indicateurs dérivés : taux pop. rurale, décès WASH"),
+        ("Construction\nvues globales",
+         "Dashboards Mondiale, Continentale, Nationale"),
+        ("Construction\nvues spécifiques",
+         "Analyses D1, D2, D3 — sélection pays prioritaires"),
+    ]
+
+    n = len(etapes)
+    arrow_w  = 0.65
+    card_gap = 0.3
+    card_w   = (CONTENT_W - (n - 1) * (arrow_w + card_gap)) / n
+
+    for i, (step_title, step_body) in enumerate(etapes):
+        left = MARGIN + i * (card_w + card_gap + arrow_w)
+        _rect(slide, left, ct, card_w, ch, BLUE_LIGHT)
+        circ = _oval(slide, left + card_w / 2 - 0.65, ct + 0.45, 1.3, 1.3, BLUE_DARK)
+        tf = circ.text_frame
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        _set_run(p.add_run(), str(i + 1), 18, True, WHITE)
+        _textbox(slide, step_title,
+                 left + 0.3, ct + 2.1, card_w - 0.6, 2.4,
+                 size=16, bold=True, color=BLUE_DARK, align=PP_ALIGN.CENTER)
+        _textbox(slide, step_body,
+                 left + 0.3, ct + 4.8, card_w - 0.6, ch - 5.0,
+                 size=14, color=GRAY_TEXT, align=PP_ALIGN.CENTER)
+        if i < n - 1:
+            _textbox(slide, "→",
+                     left + card_w + card_gap / 2, ct + ch / 2 - 0.5, arrow_w, 1.0,
+                     size=22, bold=True, color=BLUE_DARK, align=PP_ALIGN.CENTER)
 
     add_page_number(slide, 4)
 
 
-def build_justification(prs):
+def build_exploration_fichiers(prs, page_num):
     slide = _blank_slide(prs)
-    add_title(slide,
-              "Tableau Public choisi pour son interactivité et sa publication sans infrastructure"
-              " — adapté aux besoins DWFA")
+    ct, ch = add_title(slide, "Sources — 5 fichiers OMS et Banque Mondiale")
 
-    criteres = [
-        ("Interactivité",
-         [("Filtres dynamiques par région et par pays", False, None),
-          ("Actions de navigation entre les 3 vues", False, None),
-          ("Paramètres ajustables en temps réel", False, None),
-          ("Highlight et sélection inter-graphiques", False, None)]),
-        ("Publication",
-         [("Gratuit — hébergé sur tableau.com", False, None),
-          ("Lien partageable sans serveur", False, None),
-          ("Aucune infrastructure requise", False, None),
-          ("Mise à jour des données simplifiée", False, None)]),
-        ("Multi-vues connectées",
-         [("3 dashboards interconnectés", False, None),
-          ("Navigation clic → zoom sur un pays", False, None),
-          ("Contexte régional conservé entre vues", False, None),
-          ("Paramètre pays partagé entre les vues", False, None)]),
-        ("Accessibilité",
-         [("Aucune installation côté lecteur", False, None),
-          ("Consultation via navigateur standard", False, None),
-          ("Compatible mobile et desktop", False, None),
-          ("Exportable en PDF ou image", False, None)]),
+    fichiers = [
+        ("Population.csv",
+         "194 pays · Urban / Rural · 2000–2017",
+         "Multiply ×1 000, typage float64, 0 doublon"),
+        ("MortalityRateAttributedToWater.csv",
+         "183 pays · Total · 2016 uniquement",
+         "Typage, doublons supprimés, jointure sur Pays"),
+        ("BasicAndSafelyManagedDrinkingWaterServices.csv",
+         "194 pays · Total / Urban / Rural · 2000–2017",
+         "Séparation granularité, 50 % NaN sécurisé (manque OMS)"),
+        ("PoliticalStability.csv",
+         "190 pays · Score WGI −3,31 à +1,76 · 2000–2017",
+         "Typage, doublons, années partielles documentées"),
+        ("RegionCountry.csv",
+         "194 pays · 6 régions OMS",
+         "Clé jointure validée, 0 doublon"),
     ]
 
-    n = len(criteres)
-    card_gap = 0.3
-    card_w = (CONTENT_W - (n - 1) * card_gap) / n
-    card_h = CONTENT_H
+    n = len(fichiers)
+    row_gap = 0.35
+    row_h = (ch - (n - 1) * row_gap) / n
+    accent_w = 0.45
+    pad = 0.5
+    col1_w = 12.0
+    col2_w = 9.0
+    col1_left = MARGIN + accent_w + pad
+    col2_left = col1_left + col1_w + 0.4
+    col3_left = col2_left + col2_w + 0.4
+    col3_w = SLIDE_W - MARGIN - col3_left
 
-    for i, (title, body_lines) in enumerate(criteres):
-        left = MARGIN + i * (card_w + card_gap)
-        add_card(slide, title, body_lines, left, CONTENT_TOP, card_w, card_h)
+    for i, (fname, stats, transforms) in enumerate(fichiers):
+        top = ct + i * (row_h + row_gap)
+        _rect(slide, MARGIN, top, CONTENT_W, row_h, GRAY_BG)
+        _rect(slide, MARGIN, top, accent_w, row_h, BLUE_DARK)
+        text_top = top + 0.25
+        _textbox(slide, fname, col1_left, text_top, col1_w, row_h * 0.65,
+                 size=14, bold=True, color=BLUE_DARK)
+        _textbox(slide, stats, col2_left, text_top, col2_w, row_h * 0.65,
+                 size=13, color=DARK)
+        _textbox(slide, f"→  {transforms}", col3_left, text_top, col3_w, row_h * 0.65,
+                 size=13, color=GRAY_TEXT)
 
-    add_page_number(slide, 5)
+    add_page_number(slide, page_num)
 
 
-def build_architecture(prs):
+def build_mockup_globales(prs):
     slide = _blank_slide(prs)
-    add_title(slide,
-              "3 vues imbriquées pour répondre à une seule question"
-              " : quel pays prioriser pour l'intervention DWFA ?")
+    ct, ch = add_title(slide, "Mock-Up — Analyses globales")
 
     vues = [
-        ("Vue MONDIALE",
-         [("Question : Quelle est l'ampleur du problème ?", True, BLUE_MED),
-          ("", False, None),
-          ("KPIs : pop. sans accès · accès basique · sécurisé · décès · stabilité", False, None),
-          ("", False, None),
-          ("Graphiques :", True, DARK),
-          ("• Map mondiale taux de mortalité WASH", False, None),
-          ("• Bar instabilité politique par région", False, None),
-          ("• Line chart évolution accès 2000–2017", False, None),
-          ("• Bar décès WASH par région", False, None)]),
-        ("Vue CONTINENTALE",
-         [("Question : Quels pays prioriser dans la région ?", True, BLUE_MED),
-          ("", False, None),
-          ("KPIs filtrés par région sélectionnée", False, None),
-          ("", False, None),
-          ("Graphiques :", True, DARK),
-          ("• Scatter mortalité vs accès (urgence humaine)", False, None),
-          ("• Scatter D3 : stabilité vs accès sécurisé", False, None),
-          ("• Bar classement pays par accès basique", False, None),
-          ("• Line chart évolution par pays dans la région", False, None)]),
-        ("Vue PAYS",
-         [("Question : Comment intervenir ?", True, BLUE_MED),
-          ("", False, None),
-          ("KPIs filtrés par pays sélectionné", False, None),
-          ("", False, None),
-          ("Graphiques :", True, DARK),
-          ("• Scatter D1 : urbanisation vs accès basique", False, None),
-          ("• Scatter D2 : accès basique vs accès sécurisé", False, None),
-          ("• Area chart évolution accès 2000–2017", False, None),
-          ("• Panel diagnostic D1 / D2 / D3", False, None)]),
+        ("Vue Mondiale",
+         [("3 KPIs (accès basique, sécurisé, décès)", False, None),
+          ("2 filtres : région, année", False, None),
+          ("Graphiques :", True, BLUE_DARK),
+          ("• Carte mondiale mortalité WASH", False, None),
+          ("• Bar instabilité par région", False, None),
+          ("• Line chart évolution accès", False, None)]),
+        ("Vue Continentale",
+         [("KPIs filtrés par région", False, None),
+          ("2 filtres : région, pays", False, None),
+          ("Graphiques :", True, BLUE_DARK),
+          ("• Scatter mortalité vs accès", False, None),
+          ("• Scatter stabilité vs sécurisé", False, None),
+          ("• Bar classement pays", False, None),
+          ("• Line évolution par pays", False, None)]),
+        ("Vue Nationale",
+         [("KPIs filtrés par pays", False, None),
+          ("2 filtres : pays, indicateur", False, None),
+          ("Graphiques :", True, BLUE_DARK),
+          ("• Scatter D1 : urbanisation vs basique", False, None),
+          ("• Scatter D2 : basique vs sécurisé", False, None),
+          ("• Area chart évolution 2000–2017", False, None)]),
     ]
 
     n = len(vues)
-    card_gap = 0.35
+    card_gap = 0.4
     card_w = (CONTENT_W - (n - 1) * card_gap) / n
-    card_h = CONTENT_H
 
-    for i, (title, body_lines) in enumerate(vues):
+    for i, (title, body) in enumerate(vues):
+        add_card(slide, title, body,
+                 MARGIN + i * (card_w + card_gap), ct, card_w, ch)
+
+    add_page_number(slide, 10)
+
+
+def build_mockup_specifiques(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Mock-Up — Analyses spécifiques")
+
+    vues = [
+        ("Domaine 1 — Construction",
+         [("3 filtres : région, pays, année", False, None),
+          ("Graphique :", True, BLUE_DARK),
+          ("• Scatter accès basique vs population", False, None),
+          ("• Seuil < 50 % accès basique", False, None),
+          ("", False, None),
+          ("Cible : pays sans infrastructure", True, BLUE_MED)]),
+        ("Domaine 2 — Modernisation",
+         [("3 filtres : région, pays, granularité", False, None),
+          ("Graphique :", True, BLUE_DARK),
+          ("• Scatter basique vs sécurisé", False, None),
+          ("• Seuil 50–90 % accès basique", False, None),
+          ("", False, None),
+          ("Cible : infra partielle à moderniser", True, BLUE_MED)]),
+        ("Domaine 3 — Consulting",
+         [("1 KPI stabilité · 3 filtres", False, None),
+          ("Graphique :", True, BLUE_DARK),
+          ("• Scatter stabilité vs accès sécurisé", False, None),
+          ("", False, None),
+          ("", False, None),
+          ("Cible : instabilité politique forte", True, BLUE_MED)]),
+    ]
+
+    n = len(vues)
+    card_gap = 0.4
+    card_w = (CONTENT_W - (n - 1) * card_gap) / n
+
+    for i, (title, body) in enumerate(vues):
+        add_card(slide, title, body,
+                 MARGIN + i * (card_w + card_gap), ct, card_w, ch)
+
+    add_page_number(slide, 11)
+
+
+def build_fusion(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Fusion des données — 4 jointures Left Join")
+
+    joins = [
+        ("Population",        "Table de base\n194 pays · 2000–2017",              BLUE_DARK),
+        ("+ Régions OMS",     "LEFT JOIN sur Pays\n6 régions · 194 pays",          BLUE_MED),
+        ("+ Accès à l'eau",   "LEFT JOIN Pays + Année\n% basique & sécurisé",      BLUE_MED),
+        ("+ Stabilité",       "LEFT JOIN Pays + Année\nWGI −3,31 à +1,76",         BLUE_MED),
+        ("+ Mortalité",       "LEFT JOIN sur Pays\n2016 seulement",                GREEN),
+    ]
+
+    n = len(joins)
+    arrow_w  = 0.5
+    card_gap = 0.2
+    card_w   = (LEFT_COL_W - (n - 1) * (arrow_w + card_gap)) / n
+    card_h   = 3.8
+
+    for i, (jname, jdesc, col) in enumerate(joins):
+        left = MARGIN + i * (card_w + card_gap + arrow_w)
+        _rect(slide, left, ct, card_w, card_h, col)
+        _textbox(slide, jname,
+                 left + 0.2, ct + 0.4, card_w - 0.4, 1.1,
+                 size=14, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
+        _textbox(slide, jdesc,
+                 left + 0.2, ct + 1.6, card_w - 0.4, 1.9,
+                 size=12, color=WHITE, align=PP_ALIGN.CENTER)
+        if i < n - 1:
+            _textbox(slide, "→",
+                     left + card_w + card_gap / 2, ct + card_h / 2 - 0.4,
+                     arrow_w, 0.8, size=20, bold=True, color=BLUE_DARK, align=PP_ALIGN.CENTER)
+
+    result_top = ct + card_h + 0.9
+    result_lines = [
+        ("dwfa_consolide.csv — table principale", True, BLUE_DARK),
+        ("• 3 492 lignes · 13 colonnes · 0 doublon", False, None),
+        ("• NaN documentés : accès sécurisé 50 % · mortalité 94,8 % (une seule année 2016)", False, None),
+        ("", False, None),
+        ("dwfa_eau_granulaire.csv — granularités Urban / Rural", True, BLUE_DARK),
+        ("• 6 984 lignes · 6 colonnes", False, None),
+    ]
+    _multiline(slide, result_lines, MARGIN, result_top,
+               LEFT_COL_W, ch - card_h - 1.2, size=18, space_after=6)
+
+    kpi_h = (ch - 2 * 0.4) / 3
+    kpis = [
+        ("3 492", "Lignes consolidées",        BLUE_MED),
+        ("13",    "Colonnes analytiques",       BLUE_MED),
+        ("0",     "Doublon — validation OK",    GREEN),
+    ]
+    for i, (val, lbl, col) in enumerate(kpis):
+        add_kpi_box(slide, val, lbl,
+                    RIGHT_COL_L, ct + i * (kpi_h + 0.4), BOX_W, kpi_h, col)
+
+    add_page_number(slide, 7)
+
+
+def build_enrichissement(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Enrichissement — 3 indicateurs dérivés")
+
+    indicators = [
+        ("pct_pop_rurale", "Taux de population rurale",
+         "= nb_pop_rurale / nb_pop_total × 100",
+         "Identifie les zones rurales non desservies, "
+         "critiques pour dimensionner les interventions D1.",
+         BLUE_MED),
+        ("nb_deces_wash", "Décès WASH en valeur absolue",
+         "= taux_mortalite_wash × nb_pop_total / 100 000",
+         "Convertit le taux (pour 100 000 hab.) en valeur absolue. "
+         "Comparaison directe entre pays de tailles différentes.",
+         RED),
+        ("pct_pop_urbaine", "Taux de population urbaine",
+         "= nb_pop_urbaine / nb_pop_total × 100",
+         "Indicateur clé D2 : modernisation des réseaux urbains. "
+         "Disponible directement dans les données sources.",
+         GREEN),
+    ]
+
+    n = len(indicators)
+    card_gap = 0.4
+    card_w = (CONTENT_W - (n - 1) * card_gap) / n
+
+    for i, (col_name, title, formula, desc, col) in enumerate(indicators):
         left = MARGIN + i * (card_w + card_gap)
-        add_card(slide, title, body_lines, left, CONTENT_TOP, card_w, card_h)
+        _rect(slide, left, ct, card_w, ch, GRAY_BG)
+        _rect(slide, left, ct, card_w, BAND_H, col)
+        pad = 0.4
+        title_top = ct + (BAND_H - 1.6) / 2
+        txb = slide.shapes.add_textbox(Cm(left + pad), Cm(title_top),
+                                       Cm(card_w - 2 * pad), Cm(1.6))
+        tf = txb.text_frame
+        tf.word_wrap = True
+        p = tf.paragraphs[0]
+        _set_run(p.add_run(), title, 16, True, WHITE)
+        body_top = ct + BAND_H + 0.5
+        _textbox(slide, col_name,
+                 left + pad, body_top, card_w - 2 * pad, 0.9,
+                 size=15, bold=True, color=col)
+        _textbox(slide, formula,
+                 left + pad, body_top + 1.1, card_w - 2 * pad, 0.9,
+                 size=14, color=GRAY_TEXT)
+        _textbox(slide, desc,
+                 left + pad, body_top + 2.3, card_w - 2 * pad, ch - BAND_H - 3.0,
+                 size=16, color=DARK)
 
-    add_page_number(slide, 6)
+    add_page_number(slide, 8)
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+def build_vue_mondiale(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "778 M sans accès en 2017 — l'Afrique concentre l'urgence")
+
+    img_path = os.path.join(MOCKUP_DIR, "mockup_DWFA_vue1.png")
+    slide.shapes.add_picture(img_path, Cm(MARGIN), Cm(ct), Cm(LEFT_COL_W), Cm(ch))
+
+    bullets = [
+        ("Contexte mondial 2017 :", True, BLUE_DARK),
+        ("", False, None),
+        ("• 89,6 % d'accès basique mondial", False, None),
+        ("• Afrique : 62,4 % — région la plus critique", False, None),
+        ("• +9,1 pts de progression depuis 2000", False, None),
+        ("", False, None),
+        ("Filtres disponibles :", True, BLUE_DARK),
+        ("", False, None),
+        ("• Année  ·  Région OMS  ·  Métrique", False, None),
+        ("• Seuil stabilité  ·  Urbain / Rural", False, None),
+    ]
+    _multiline(slide, bullets, RIGHT_COL_L, ct, BOX_W, ch, size=16, space_after=6)
+
+    add_page_number(slide, 13)
+
+
+def build_vue_continentale(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Afrique à 62,4 % — 36 points sous l'Europe")
+
+    img_path = os.path.join(MOCKUP_DIR, "mockup_DWFA_vue2.png")
+    slide.shapes.add_picture(img_path, Cm(MARGIN), Cm(ct), Cm(LEFT_COL_W), Cm(ch))
+
+    regions = [
+        ("62,4 %", "Afrique",              RED),
+        ("88,9 %", "Méd. orientale",        BLUE_MED),
+        ("92,5 %", "Asie du Sud-Est",        BLUE_MED),
+        ("93,4 %", "Pacifique occidental",   BLUE_MED),
+        ("97,6 %", "Amériques",             GREEN),
+        ("98,3 %", "Europe",                GREEN),
+    ]
+    box_h = (ch - 5 * 0.25) / 6
+    for i, (val, lbl, col) in enumerate(regions):
+        top = ct + i * (box_h + 0.25)
+        _rect(slide, RIGHT_COL_L, top, BOX_W, box_h, GRAY_BG)
+        pad = 0.3
+        _textbox(slide, val,
+                 RIGHT_COL_L + pad, top + box_h * 0.1,
+                 BOX_W * 0.46, box_h * 0.75,
+                 size=22, bold=True, color=col, align=PP_ALIGN.CENTER)
+        _textbox(slide, lbl,
+                 RIGHT_COL_L + BOX_W * 0.5, top + box_h * 0.28,
+                 BOX_W * 0.46, box_h * 0.5,
+                 size=13, color=GRAY_TEXT)
+
+    add_page_number(slide, 14)
+
+
+def build_vue_nationale(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Éthiopie, RDC, Nigeria — 164 M sans accès en Afrique")
+
+    img_path = os.path.join(MOCKUP_DIR, "mockup_DWFA_vue3.png")
+    slide.shapes.add_picture(img_path, Cm(MARGIN), Cm(ct), Cm(LEFT_COL_W), Cm(ch))
+
+    pays_data = [
+        ("Éthiopie", "41,1 %", "62,7 M"),
+        ("RD Congo",  "43,2 %", "46,2 M"),
+        ("Nigeria",   "71,4 %", "54,6 M"),
+        ("Ouganda",   "49,1 %", "21,0 M"),
+        ("Tanzanie",  "56,7 %", "23,7 M"),
+    ]
+    box_h = (ch - 4 * 0.3) / 5
+    for i, (country, pct, pop) in enumerate(pays_data):
+        top = ct + i * (box_h + 0.3)
+        _rect(slide, RIGHT_COL_L, top, BOX_W, box_h, GRAY_BG)
+        pad = 0.3
+        _textbox(slide, country,
+                 RIGHT_COL_L + pad, top + 0.12, BOX_W - 2 * pad, box_h * 0.4,
+                 size=15, bold=True, color=DARK)
+        _textbox(slide, pct,
+                 RIGHT_COL_L + pad, top + box_h * 0.52,
+                 BOX_W * 0.46, box_h * 0.42,
+                 size=17, bold=True, color=RED)
+        _textbox(slide, pop,
+                 RIGHT_COL_L + BOX_W * 0.52, top + box_h * 0.52,
+                 BOX_W * 0.44, box_h * 0.42,
+                 size=15, color=GRAY_TEXT)
+
+    add_page_number(slide, 15)
+
+
+def build_domaine1(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "D1 Construction — accès basique < 50 %")
+
+    body_lines = [
+        ("Critère de sélection :", True, BLUE_DARK),
+        ("", False, None),
+        ("Accès à l'eau basique < 50 % en 2017. Pas d'infrastructure de base — "
+         "intervention de construction ab initio.", False, None),
+        ("", False, None),
+        ("Pays prioritaires :", True, BLUE_DARK),
+        ("", False, None),
+        ("• Tchad             38,7 %  →   9,2 M non couverts", False, None),
+        ("• South Sudan       40,7 %  →   pop. limitée", False, None),
+        ("• Éthiopie          41,1 %  →  62,7 M non couverts", False, None),
+        ("• RD Congo          43,2 %  →  46,2 M non couverts", False, None),
+        ("• Burkina Faso      47,9 %  →  10,0 M non couverts", False, None),
+        ("", False, None),
+        ("Recommandation :", True, BLUE_DARK),
+        ("Éthiopie et RDC en tête par volume. Le Tchad a le taux le plus faible (38,7 %).", False, None),
+    ]
+    _multiline(slide, body_lines, MARGIN, ct, LEFT_COL_W, ch, size=18, space_after=6)
+
+    kpi_h = (ch - 2 * 0.4) / 3
+    kpis = [
+        ("38,7 %", "Accès basique Tchad — pire taux D1",   RED),
+        ("5",      "Pays avec accès < 50 % (2017)",         BLUE_MED),
+        ("155 M",  "Personnes non couvertes (top 5)",       RED),
+    ]
+    for i, (val, lbl, col) in enumerate(kpis):
+        add_kpi_box(slide, val, lbl,
+                    RIGHT_COL_L, ct + i * (kpi_h + 0.4), BOX_W, kpi_h, col)
+
+    add_page_number(slide, 17)
+
+
+def build_domaine2(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "D2 Modernisation — Nigeria, Tanzanie, Kenya")
+
+    body_lines = [
+        ("Critère de sélection :", True, BLUE_DARK),
+        ("", False, None),
+        ("Accès basique entre 50 % et 90 % en 2017. Infrastructure existante "
+         "mais incomplète — extension et sécurisation du réseau.", False, None),
+        ("", False, None),
+        ("Pays prioritaires :", True, BLUE_DARK),
+        ("", False, None),
+        ("• Nigeria      71,4 %  →  54,6 M non couverts", False, None),
+        ("• Tanzanie     56,7 %  →  23,7 M non couverts", False, None),
+        ("• Kenya        58,9 %  →  20,6 M non couverts", False, None),
+        ("• Soudan       60,3 %  →  16,2 M non couverts", False, None),
+        ("• Indonésie    89,3 %  →  28,2 M non couverts", False, None),
+        ("", False, None),
+        ("Recommandation :", True, BLUE_DARK),
+        ("Nigeria : volume le plus élevé + écart basique/sécurisé de 51 pts.", False, None),
+    ]
+    _multiline(slide, body_lines, MARGIN, ct, LEFT_COL_W, ch, size=18, space_after=6)
+
+    kpi_h = (ch - 2 * 0.4) / 3
+    kpis = [
+        ("71,4 %", "Accès basique Nigeria",             BLUE_MED),
+        ("51 pts",  "Écart basique / sécurisé Nigeria",  RED),
+        ("143 M",  "Personnes non couvertes (top 5)",   RED),
+    ]
+    for i, (val, lbl, col) in enumerate(kpis):
+        add_kpi_box(slide, val, lbl,
+                    RIGHT_COL_L, ct + i * (kpi_h + 0.4), BOX_W, kpi_h, col)
+
+    add_page_number(slide, 18)
+
+
+def build_domaine3(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "D3 Consulting — Yémen, Afghanistan, instabilité extrême")
+
+    body_lines = [
+        ("Critère de sélection :", True, BLUE_DARK),
+        ("", False, None),
+        ("Score WGI de stabilité politique le plus faible. Cadre institutionnel "
+         "défaillant qui bloque l'amélioration de l'accès.", False, None),
+        ("", False, None),
+        ("Pays prioritaires :", True, BLUE_DARK),
+        ("", False, None),
+        ("• Yémen        score −2,94  ·  accès 63,5 %", False, None),
+        ("• Afghanistan  score −2,80  ·  accès 67,1 %", False, None),
+        ("• Syrie        score −2,62  ·  accès 97,2 %  (fragile)", False, None),
+        ("• South Sudan  score −2,45  ·  accès 40,7 %  (D1 + D3)", False, None),
+        ("• Pakistan     score −2,41  ·  accès 91,5 %", False, None),
+        ("", False, None),
+        ("Recommandation :", True, BLUE_DARK),
+        ("Yémen : priorité absolue. South Sudan cumule urgences D1 et D3.", False, None),
+    ]
+    _multiline(slide, body_lines, MARGIN, ct, LEFT_COL_W, ch, size=18, space_after=6)
+
+    kpi_h = (ch - 2 * 0.4) / 3
+    kpis = [
+        ("−2,94",  "Score WGI Yémen — pire stabilité",    RED),
+        ("5",      "Pays avec WGI < −2,4 en 2017",        BLUE_MED),
+        ("63,5 %", "Accès basique Yémen",                  RED),
+    ]
+    for i, (val, lbl, col) in enumerate(kpis):
+        add_kpi_box(slide, val, lbl,
+                    RIGHT_COL_L, ct + i * (kpi_h + 0.4), BOX_W, kpi_h, col)
+
+    add_page_number(slide, 19)
+
+
+def build_synthese(prs):
+    slide = _blank_slide(prs)
+    ct, ch = add_title(slide, "Synthèse — Résultats et recommandations DWFA")
+
+    points = [
+        ("Exploration & Nettoyage",
+         [("• 5 sources → 1 table (3 492 lignes, 13 colonnes)", False, None),
+          ("• 0 doublon — tests assert automatiques", False, None),
+          ("• NaN documentés : sécurisé 50 % · mortalité 94,8 %", False, None)]),
+        ("Analyse globale",
+         [("• 778 M sans accès basique en 2017", False, None),
+          ("• Afrique 62,4 % — 36 pts sous l'Europe (98,3 %)", False, None),
+          ("• 868 000 décès WASH — 54 % en Afrique", False, None)]),
+        ("Analyse des domaines",
+         [("• D1 : Éthiopie 62,7 M + RDC 46,2 M non couverts", False, None),
+          ("• D2 : Nigeria — 54,6 M, écart 51 pts", False, None),
+          ("• D3 : Yémen −2,94 · Afghanistan −2,80", False, None)]),
+        ("Outil de visualisation",
+         [("• Tableau Public — 3 dashboards liés", False, None),
+          ("• Filtres : région, pays, année, granularité", False, None),
+          ("• Publication sans infrastructure", False, None)]),
+    ]
+
+    n = len(points)
+    card_gap = 0.4
+    card_w = (CONTENT_W - (n - 1) * card_gap) / n
+
+    for i, (title, body) in enumerate(points):
+        add_card(slide, title, body,
+                 MARGIN + i * (card_w + card_gap), ct, card_w, ch)
+
+    add_page_number(slide, 20)
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     prs = Presentation()
     prs.slide_width  = Cm(SLIDE_W)
     prs.slide_height = Cm(SLIDE_H)
 
-    build_cover(prs)
-    build_contexte(prs)
-    build_sources(prs)
-    build_pretraitement(prs)
-    build_justification(prs)
-    build_architecture(prs)
+    build_cover(prs)                                                    # 1
+    build_objectif(prs)                                                 # 2
+    build_outils(prs)                                                   # 3
+    build_etapes(prs)                                                   # 4
+    add_section_divider(prs, "Exploration & Nettoyage",
+                        "des données", 5)                               # 5
+    build_exploration_fichiers(prs, 6)                                  # 6
+    build_fusion(prs)                                                   # 7
 
-    output = "/home/elicesjo/Formation/PROJET-10-/presentation_DWFA.pptx"
+    output = os.path.join(BASE, "presentation_DWFA.pptx")
     prs.save(output)
-    print(f"presentation_DWFA.pptx créé — {len(prs.slides)} slides")
+    print(f"presentation_DWFA.pptx — {len(prs.slides)} slides")
 
 
 if __name__ == "__main__":

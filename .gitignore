@@ -1,0 +1,11 @@
+*.pyc
+*.pyo
+__pycache__/
+*.zip
+__MACOSX/
+raw data/
+other/
+mockup/
+generate_pptx.py
+~$*.pptx
+*.twbr
