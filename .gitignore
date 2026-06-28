@@ -9,3 +9,4 @@ mockup/
 generate_pptx.py
 ~$*.pptx
 *.twbr
+.vscode/
